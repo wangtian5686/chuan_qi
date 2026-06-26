@@ -6,9 +6,12 @@
  * - 批量加载并回报整体进度（onProgress(percent, loaded, total)）
  * - 提供占位图生成器 generatePlaceholderImage，纯色 Canvas 精灵，
  *   使骨架阶段无需任何外部资源即可运行。
+ * - loadSpriteSheet：成对加载精灵图 PNG + 动画 JSON，并构造 SpriteSheet 实例缓存
  *
  * 后续 Task 接入真实资源时，manifest 指向 assets/sprites、assets/tiles 即可。
  */
+
+import { SpriteSheet } from './SpriteSheet.js';
 
 export class AssetLoader {
   constructor() {
@@ -16,6 +19,8 @@ export class AssetLoader {
     this.images = new Map();
     /** @type {Map<string, any>} JSON 缓存 key -> 解析后对象 */
     this.jsons = new Map();
+    /** @type {Map<string, SpriteSheet>} 精灵图缓存 key -> SpriteSheet 实例 */
+    this.spriteSheets = new Map();
     /** 进度回调：function(percent, loaded, total) */
     this.onProgress = null;
   }
@@ -101,6 +106,52 @@ export class AssetLoader {
   /** 获取已加载 JSON */
   getJson(key) {
     return this.jsons.get(key);
+  }
+
+  /**
+   * 成对加载精灵图 PNG + 动画 JSON，构造 SpriteSheet 并缓存
+   * 图片存入 images[key]，JSON 存入 jsons[key]，SpriteSheet 存入 spriteSheets[key]
+   * @param {string} key 缓存键（图片与 JSON 共用同一 key，分属不同 Map 不冲突）
+   * @param {string} imgSrc 图片路径
+   * @param {string} jsonSrc 动画 JSON 路径（见 assets/SPRITE_SPEC.md）
+   * @returns {Promise<SpriteSheet>}
+   */
+  loadSpriteSheet(key, imgSrc, jsonSrc) {
+    return Promise.all([
+      this.loadImage(key, imgSrc),
+      this.loadJson(key, jsonSrc),
+    ]).then(([image, json]) => {
+      const frameWidth = (json && json.frameWidth) || 0;
+      const frameHeight = (json && json.frameHeight) || 0;
+      const animations = (json && json.animations) || {};
+      const sheet = new SpriteSheet(image, frameWidth, frameHeight, animations);
+      this.spriteSheets.set(key, sheet);
+      return sheet;
+    });
+  }
+
+  /**
+   * 获取已加载的 SpriteSheet
+   * 优先返回缓存实例；若未缓存但图片与 JSON 均已就绪，则即时构造并缓存
+   * @param {string} key
+   * @returns {SpriteSheet|undefined}
+   */
+  getSpriteSheet(key) {
+    const cached = this.spriteSheets.get(key);
+    if (cached) return cached;
+    const image = this.images.get(key);
+    const json = this.jsons.get(key);
+    if (image && json) {
+      const sheet = new SpriteSheet(
+        image,
+        json.frameWidth || 0,
+        json.frameHeight || 0,
+        json.animations || {}
+      );
+      this.spriteSheets.set(key, sheet);
+      return sheet;
+    }
+    return undefined;
   }
 
   /**

@@ -56,6 +56,8 @@ export class InventoryWindow {
     this.canvas = canvas;
     this.input = input;
     this.player = player;
+    /** Game 引用（用于回城卷轴触发传送） */
+    this.game = null;
 
     /** 是否可见 */
     this.visible = false;
@@ -193,7 +195,12 @@ export class InventoryWindow {
               equipItem(this.player, slot);
             } else {
               // 消耗品 -> 使用
-              useItem(this.player, slot);
+              const result = useItem(this.player, slot);
+              // 回城卷轴：触发实际传送
+              if (result && result.ok && result.effect === 'teleport_home'
+                && this.game && typeof this.game.teleportHome === 'function') {
+                this.game.teleportHome();
+              }
             }
           }
         }

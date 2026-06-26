@@ -217,8 +217,9 @@ export class Scene {
 
   /**
    * 渲染场景：
-   * 1. 地面层（由 IsometricMap 绘制）
+   * 1. 地面层（由 IsometricMap 绘制，已做视口剔除）
    * 2. 收集所有 sprite（实体 + 物体层瓦片）按世界 Y 排序后绘制
+   *    实体做视口剔除：仅包装/绘制屏幕可见范围内的实体，减少 sortY 与 draw 调用
    * @param {CanvasRenderingContext2D} ctx
    * @param {import('./Camera.js').Camera} camera
    * @param {import('./AssetLoader.js').AssetLoader} assetLoader
@@ -227,23 +228,33 @@ export class Scene {
     // 1. 地面层（render 同时返回物体层 sprite 列表）
     const objectSprites = this.map.render(ctx, camera, assetLoader);
 
-    // 2. 收集实体 sprite
+    // 2. 收集实体 sprite（视口剔除）
     const sprites = [];
-    // 复用物体层 sprite，避免重新分配
+    // 复用物体层 sprite，避免重新分配（物体层已在 IsometricMap 内剔除）
     for (const s of objectSprites) sprites.push(s);
 
-    // 玩家
+    // 玩家（始终保留，避免跟随主体闪烁）
     if (this.player) sprites.push(this._wrapEntity(this.player, camera));
     // 召唤物
-    for (const s of this.summons) sprites.push(this._wrapEntity(s, camera));
+    for (const s of this.summons) {
+      if (this._isEntityVisible(s, camera)) sprites.push(this._wrapEntity(s, camera));
+    }
     // NPC
-    for (const n of this.npcs) sprites.push(this._wrapEntity(n, camera));
+    for (const n of this.npcs) {
+      if (this._isEntityVisible(n, camera)) sprites.push(this._wrapEntity(n, camera));
+    }
     // 怪物
-    for (const m of this.monsters) sprites.push(this._wrapEntity(m, camera));
+    for (const m of this.monsters) {
+      if (this._isEntityVisible(m, camera)) sprites.push(this._wrapEntity(m, camera));
+    }
     // 掉落物
-    for (const d of this.drops) sprites.push(this._wrapEntity(d, camera));
+    for (const d of this.drops) {
+      if (this._isEntityVisible(d, camera)) sprites.push(this._wrapEntity(d, camera));
+    }
     // 投射物：通常不需 Y 排序（飞行中），但为简单起见也参与排序
-    for (const p of this.projectiles) sprites.push(this._wrapEntity(p, camera));
+    for (const p of this.projectiles) {
+      if (this._isEntityVisible(p, camera)) sprites.push(this._wrapEntity(p, camera));
+    }
 
     // 3. 按 sortY 升序排序（世界 Y 越小越靠后绘制，越大越靠前 → 正确遮挡）
     sprites.sort((a, b) => a.sortY - b.sortY);
@@ -252,6 +263,27 @@ export class Scene {
     for (const sp of sprites) {
       if (sp && typeof sp.draw === 'function') sp.draw(ctx);
     }
+  }
+
+  /**
+   * 实体视口剔除：判断实体世界坐标是否落在相机视口内（含边距）
+   * 边距用于容纳精灵高度（树/建筑可达 96px）、头顶名字与血条、阴影
+   * @param {object} entity 实体（需有 worldX/worldY 或 x/y）
+   * @param {import('./Camera.js').Camera} camera
+   * @returns {boolean} true 表示在视口内，需绘制
+   */
+  _isEntityVisible(entity, camera) {
+    if (!entity) return false;
+    const ex = entity.worldX != null ? entity.worldX : (entity.x || 0);
+    const ey = entity.worldY != null ? entity.worldY : (entity.y || 0);
+    const s = camera.worldToScreen(ex, ey);
+    // 边距：左右各 1 个瓦片宽（64），上方留出精灵高度+名字+血条（160），下方 1 个瓦片高（32）
+    const marginX = 64;
+    const marginYTop = 160;
+    const marginYBottom = 32;
+    if (s.x < -marginX || s.x > camera.viewportW + marginX) return false;
+    if (s.y < -marginYTop || s.y > camera.viewportH + marginYBottom) return false;
+    return true;
   }
 
   /**

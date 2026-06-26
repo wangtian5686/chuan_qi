@@ -6,6 +6,7 @@
  * - 对角线穿越需检查两侧邻格是否均可走，避免"穿墙角"
  * - Manhattan 距离启发式（网格寻路常用，且对 8 方向仍可采纳）
  * - 使用二叉堆（小顶堆）作为开放表以提升大图性能
+ * - 路径结果缓存：同一起点终点短时间内复用，避免连续点击重复寻路
  *
  * 路径返回瓦片坐标数组 [{tx,ty},...]，起点与终点均包含；
  * 找不到路径返回 null。
@@ -29,22 +30,30 @@ export class Pathfinder {
     if (!map.inBounds(startTx, startTy) || !map.inBounds(endTx, endTy)) {
       return null;
     }
+
+    // 路径缓存查询：同一起点终点在 TTL 内直接复用
+    const cacheKey = Pathfinder._cacheKey(map, startTx, startTy, endTx, endTy);
+    const cached = Pathfinder._cacheGet(cacheKey);
+    if (cached !== undefined) {
+      // 返回副本，避免调用方修改污染缓存
+      return cached === null ? null : cached.slice();
+    }
     // 终点不可走时，尝试在终点周围找最近可走格（避免点击树木等导致寻路失败）
     let goalTx = endTx, goalTy = endTy;
     if (!map.isWalkable(endTx, endTy)) {
       const alt = Pathfinder._nearestWalkable(map, endTx, endTy);
-      if (!alt) return null;
+      if (!alt) return Pathfinder._cacheSet(cacheKey, null);
       goalTx = alt.tx;
       goalTy = alt.ty;
     }
     // 起点不可走（理论上玩家不该在此），退化为终点
     if (!map.isWalkable(startTx, startTy)) {
-      return [{ tx: goalTx, ty: goalTy }];
+      return Pathfinder._cacheSet(cacheKey, [{ tx: goalTx, ty: goalTy }]);
     }
 
     // 起点等于终点
     if (startTx === goalTx && startTy === goalTy) {
-      return [{ tx: startTx, ty: startTy }];
+      return Pathfinder._cacheSet(cacheKey, [{ tx: startTx, ty: startTy }]);
     }
 
     // 8 方向偏移：[dx, dy, cost]（对角线 cost ≈ √2）
@@ -84,7 +93,7 @@ export class Pathfinder {
 
       // 到达终点
       if (cur.tx === goalTx && cur.ty === goalTy) {
-        return Pathfinder._reconstruct(cameFrom, curKey, startKey);
+        return Pathfinder._cacheSet(cacheKey, Pathfinder._reconstruct(cameFrom, curKey, startKey));
       }
 
       const curG = gScore.get(curKey);
@@ -117,7 +126,63 @@ export class Pathfinder {
       }
     }
 
-    return null; // 未找到路径
+    return Pathfinder._cacheSet(cacheKey, null); // 未找到路径
+  }
+
+  // ===== 路径缓存 =====
+  // 同一起点终点在 TTL 内复用结果，避免连续点击 / 高频寻路重复计算。
+  // 缓存按 (mapId, start, end) 为键；TTL 过期自动失效。
+  // 地图切换或可走性变化时调用 clearCache() 主动清理。
+
+  /** @type {Map<string, {value:Array|null, expire:number}>} */
+  static _cache = new Map();
+  /** 缓存有效期（毫秒） */
+  static _cacheTTL = 300;
+
+  /**
+   * 构造缓存键
+   * @param {object} map 地图实例
+   * @param {number} startTx
+   * @param {number} startTy
+   * @param {number} endTx
+   * @param {number} endTy
+   * @returns {string}
+   */
+  static _cacheKey(map, startTx, startTy, endTx, endTy) {
+    const mapId = (map && map.id) || '_';
+    return `${mapId}:${startTx},${startTy}->${endTx},${endTy}`;
+  }
+
+  /**
+   * 查询缓存（过期自动清理并视为未命中）
+   * @param {string} cacheKey
+   * @returns {Array|null|undefined} undefined 表示未命中
+   */
+  static _cacheGet(cacheKey) {
+    const entry = Pathfinder._cache.get(cacheKey);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expire) {
+      Pathfinder._cache.delete(cacheKey);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  /**
+   * 写入缓存并返回调用方使用的副本
+   * 缓存内保留原始引用，调用方拿到副本，避免误改污染缓存
+   * @param {string} cacheKey
+   * @param {Array|null} value
+   * @returns {Array|null}
+   */
+  static _cacheSet(cacheKey, value) {
+    Pathfinder._cache.set(cacheKey, { value, expire: Date.now() + Pathfinder._cacheTTL });
+    return Array.isArray(value) ? value.slice() : value;
+  }
+
+  /** 清空全部路径缓存（地图切换 / 可走性变化时调用） */
+  static clearCache() {
+    Pathfinder._cache.clear();
   }
 
   /** Manhattan 距离启发式 */
