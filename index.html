@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 禁止移动端缩放 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>热血传奇 1:1 复刻</title>
+  <style>
+    /* 全局重置：占满视口、禁止滚动条、黑色背景 */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* Canvas 占满视口 */
+    #game {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      cursor: default;
+    }
+
+    /* 通用覆盖层：绝对定位铺满，用于菜单/创建角色等 HTML UI */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none; /* 默认不拦截事件，由内部可交互元素单独开启 */
+    }
+    .overlay.active { pointer-events: auto; }
+    .overlay.hidden { display: none; }
+
+    /* 加载提示 */
+    #loading {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e8d8a0;
+      font-size: 22px;
+      letter-spacing: 2px;
+      background: #000;
+      z-index: 50;
+    }
+
+    /* 主菜单 */
+    #main-menu {
+      background: linear-gradient(180deg, #0a2a5e 0%, #15409a 50%, #0a2a5e 100%);
+      color: #ffe9a8;
+      z-index: 40;
+    }
+    #main-menu .title {
+      font-size: 56px;
+      font-weight: bold;
+      letter-spacing: 8px;
+      text-shadow: 0 0 12px rgba(0,0,0,0.8), 0 4px 0 #5a3a00;
+      margin-bottom: 12px;
+    }
+    #main-menu .subtitle {
+      font-size: 18px;
+      color: #b8d4ff;
+      margin-bottom: 48px;
+      letter-spacing: 4px;
+    }
+    #main-menu .btn {
+      pointer-events: auto;
+      padding: 14px 56px;
+      font-size: 22px;
+      color: #fff;
+      background: linear-gradient(180deg, #c8902a 0%, #8a5a10 100%);
+      border: 2px solid #ffe9a8;
+      border-radius: 6px;
+      cursor: pointer;
+      letter-spacing: 6px;
+      margin: 8px 0;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      transition: transform 0.1s, filter 0.1s;
+    }
+    #main-menu .btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+    #main-menu .btn:active { transform: translateY(1px); }
+
+    /* 创建角色 */
+    #character-create {
+      background: rgba(8, 16, 32, 0.92);
+      color: #ffe9a8;
+      z-index: 30;
+    }
+    #character-create .title {
+      font-size: 32px;
+      letter-spacing: 6px;
+      margin-bottom: 32px;
+      color: #ffe9a8;
+    }
+    #character-create .class-list {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    #character-create .class-card {
+      pointer-events: auto;
+      width: 180px;
+      padding: 20px 12px;
+      text-align: center;
+      background: rgba(20, 40, 80, 0.8);
+      border: 2px solid #4a6aa0;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #e8d8a0;
+      transition: border-color 0.15s, transform 0.1s;
+    }
+    #character-create .class-card:hover { border-color: #ffe9a8; transform: translateY(-2px); }
+    #character-create .class-card .name { font-size: 22px; font-weight: bold; margin-bottom: 8px; }
+    #character-create .class-card .desc { font-size: 13px; color: #9ab0d8; line-height: 1.5; }
+    #character-create .back-btn {
+      pointer-events: auto;
+      padding: 8px 24px;
+      font-size: 14px;
+      color: #b8d4ff;
+      background: transparent;
+      border: 1px solid #4a6aa0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* PLAYING 占位提示（由 canvas 渲染，这里留空容器备用） */
+    #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <!-- 全屏游戏画布 -->
+  <canvas id="game"></canvas>
+
+  <!-- 加载提示 -->
+  <div id="loading">加载中... 0%</div>
+
+  <!-- 主菜单覆盖层 -->
+  <div id="main-menu" class="overlay hidden">
+    <div class="title">热血传奇</div>
+    <div class="subtitle">1 : 1 复刻</div>
+    <button class="btn" id="btn-new-game">新游戏</button>
+  </div>
+
+  <!-- 创建角色覆盖层 -->
+  <div id="character-create" class="overlay hidden">
+    <div class="title">选择职业</div>
+    <div class="class-list">
+      <div class="class-card" data-class="warrior">
+        <div class="name">战士</div>
+        <div class="desc">近战物理<br />高血量 高防御</div>
+      </div>
+      <div class="class-card" data-class="mage">
+        <div class="name">法师</div>
+        <div class="desc">远程魔法<br />高伤害 低血量</div>
+      </div>
+      <div class="class-card" data-class="taoist">
+        <div class="name">道士</div>
+        <div class="desc">召唤辅助<br />施毒 治疗均衡</div>
+      </div>
+    </div>
+    <button class="back-btn" id="btn-back-menu">返回主菜单</button>
+  </div>
+
+  <!-- HUD 容器（占位，后续 Task 接入） -->
+  <div id="hud" class="hidden"></div>
+
+  <!-- ES6 模块入口 -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
