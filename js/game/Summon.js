@@ -14,6 +14,7 @@
  */
 
 import { distance, randInt } from '../utils/math.js';
+import { SpriteRenderer } from '../engine/SpriteRenderer.js';
 
 const TILE_W = 64;
 const TILE_H = 32;
@@ -290,9 +291,46 @@ export class Summon {
     };
   }
 
-  /** 精灵描述（无图阶段返回 null，由 Scene 默认路径绘制阴影 / 名字 / 血条） */
-  getSprite() {
+  /**
+   * 获取精灵描述
+   * - 带 camera：返回 {sortY, draw}（供 Scene._wrapEntity）
+   * - 不带 camera：返回 null（无图占位）
+   * @param {object} [camera]
+   */
+  getSprite(camera) {
+    if (camera !== undefined && camera !== null) {
+      const self = this;
+      return {
+        sortY: this.wy,
+        draw(ctx) {
+          self._render(ctx, camera);
+        },
+      };
+    }
     return null;
+  }
+
+  /** 实际绘制：阴影 + 色块占位 + 名字 + 血条 */
+  _render(ctx, camera) {
+    SpriteRenderer.drawShadow(ctx, camera, this.wx, this.wy, 12);
+    const s = camera.worldToScreen(this.wx, this.wy);
+    const bw = 22;
+    const bh = 36;
+    ctx.save();
+    if (!this.alive || this.stats.hp <= 0) ctx.globalAlpha = 0.5;
+    ctx.fillStyle = this.color || '#cccccc';
+    ctx.fillRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.restore();
+    if (!this.alive || this.stats.hp <= 0) return;
+    if (this.name) {
+      SpriteRenderer.drawNameTag(ctx, camera, this.wx, this.wy, this.name, '#88ccff');
+    }
+    if (this.stats.maxHp > 0) {
+      SpriteRenderer.drawHealthBar(ctx, camera, this.wx, this.wy, this.stats.hp / this.stats.maxHp);
+    }
   }
 
   /** 序列化 */

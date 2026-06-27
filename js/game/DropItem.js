@@ -13,6 +13,7 @@
  */
 
 import { getItem } from '../data/items.js';
+import { SpriteRenderer } from '../engine/SpriteRenderer.js';
 
 /** 全局自增 id 计数器（单进程内唯一即可） */
 let _nextDropId = 1;
@@ -53,19 +54,46 @@ export class DropItem {
   }
 
   /**
-   * 获取掉落物的精灵信息
-   * - 无图阶段 image 为 null，由渲染层用 color 占位色块绘制
-   * @returns {{image:null, color:string, anchorX:number, anchorY:number}}
+   * 获取掉落物的精灵描述
+   * - 带 camera：返回 {sortY, draw}（供 Scene._wrapEntity）
+   * - 不带 camera：返回 {image, color} 占位信息
+   * @param {object} [camera]
    */
-  getSprite() {
+  getSprite(camera) {
     const def = getItem(this.itemId);
     const color = (def && def.color) || '#cccccc';
+    if (camera !== undefined && camera !== null) {
+      const self = this;
+      return {
+        sortY: this.wy,
+        draw(ctx) {
+          self._render(ctx, camera, color, def);
+        },
+      };
+    }
     return {
       image: null,
       color,
       anchorX: 0.5,
       anchorY: 0.5,
     };
+  }
+
+  /** 实际绘制：小阴影 + 物品色块 + 物品名 */
+  _render(ctx, camera, color, def) {
+    SpriteRenderer.drawShadow(ctx, camera, this.wx, this.wy, 8);
+    const s = camera.worldToScreen(this.wx, this.wy);
+    const sz = 14;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.fillRect(s.x - sz / 2, s.y - sz, sz, sz);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(s.x - sz / 2, s.y - sz, sz, sz);
+    ctx.restore();
+    if (def && def.name) {
+      SpriteRenderer.drawNameTag(ctx, camera, this.wx, this.wy, def.name, '#ffe9a8');
+    }
   }
 
   /**

@@ -30,6 +30,7 @@ import { getClass } from '../data/classes.js';
 import { getSkill } from '../data/skills.js';
 import { getItem, applyItemStats, checkSetBonus } from '../data/items.js';
 import { Pathfinder } from '../engine/Pathfinder.js';
+import { SpriteRenderer } from '../engine/SpriteRenderer.js';
 import { angleBetween } from '../utils/math.js';
 
 /** 等距瓦片像素尺寸（与 IsometricMap 一致） */
@@ -556,10 +557,21 @@ export class Player {
   // ===== 渲染信息 =====
 
   /**
-   * 获取精灵信息（无图阶段 image 为 null，用 color 占位）
-   * @returns {{image:null, color:string, frame:null, anchorX:number, anchorY:number}}
+   * 获取精灵描述：
+   * - 带 camera 参数：供 Scene.render 的 _wrapEntity 使用，返回 {sortY, draw}
+   * - 无 camera 参数：返回精灵信息（image/color 等，供 HUD 等外部使用）
+   * @param {object} [camera]
    */
-  getSprite() {
+  getSprite(camera) {
+    if (camera !== undefined && camera !== null) {
+      const self = this;
+      return {
+        sortY: this.wy,
+        draw(ctx) {
+          self._render(ctx, camera);
+        },
+      };
+    }
     return {
       image: null,
       color: CLASS_COLORS[this.classId] || '#cccccc',
@@ -567,6 +579,40 @@ export class Player {
       anchorX: 0.5,
       anchorY: 1.0,
     };
+  }
+
+  /**
+   * 实际绘制：阴影 + 色块占位 + 名字 + 血条
+   * 与 Monster._render 风格一致
+   */
+  _render(ctx, camera) {
+    // 阴影
+    SpriteRenderer.drawShadow(ctx, camera, this.wx, this.wy, 14);
+    // 无图阶段：职业色块占位
+    const s = camera.worldToScreen(this.wx, this.wy);
+    const bw = 24;
+    const bh = 40;
+    const dead = this.state === 'dead';
+    ctx.save();
+    if (dead) ctx.globalAlpha = 0.5;
+    ctx.fillStyle = CLASS_COLORS[this.classId] || '#cccccc';
+    ctx.fillRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.restore();
+    if (dead) return; // 尸体不显示名字/血条
+    // 名字（含等级）
+    SpriteRenderer.drawNameTag(
+      ctx, camera, this.wx, this.wy,
+      `${this.name} Lv${this.level}`, this.getNameColor(),
+    );
+    // 血条
+    if (this.stats.maxHp > 0) {
+      SpriteRenderer.drawHealthBar(
+        ctx, camera, this.wx, this.wy, this.stats.hp / this.stats.maxHp,
+      );
+    }
   }
 
   /**

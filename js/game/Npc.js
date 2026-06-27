@@ -18,6 +18,7 @@
 
 import { getItem } from '../data/items.js';
 import { distance } from '../utils/math.js';
+import { SpriteRenderer } from '../engine/SpriteRenderer.js';
 
 /** NPC 类型 → 占位色 */
 const NPC_COLORS = {
@@ -253,6 +254,45 @@ export class Npc {
       nameColor: '#00ff00',
       level: 0,
     };
+  }
+
+  /**
+   * 获取精灵描述（供 Scene._wrapEntity 使用）
+   * - 带 camera：返回 {sortY, draw}
+   * - 不带 camera：返回占位色信息
+   * @param {object} [camera]
+   */
+  getSprite(camera) {
+    if (camera !== undefined && camera !== null) {
+      const self = this;
+      return {
+        sortY: this.wy,
+        draw(ctx) {
+          self._render(ctx, camera);
+        },
+      };
+    }
+    return { image: null, color: this.color };
+  }
+
+  /** 实际绘制：阴影 + 色块占位 + 名字 */
+  _render(ctx, camera) {
+    SpriteRenderer.drawShadow(ctx, camera, this.wx, this.wy, 14);
+    const s = camera.worldToScreen(this.wx, this.wy);
+    const bw = 24;
+    const bh = 40;
+    ctx.save();
+    ctx.fillStyle = this.color;
+    ctx.fillRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(s.x - bw / 2, s.y - bh, bw, bh);
+    ctx.restore();
+    if (this.name) {
+      SpriteRenderer.drawNameTag(
+        ctx, camera, this.wx, this.wy, this.name, '#00ff00',
+      );
+    }
   }
 }
 
